@@ -1,0 +1,121 @@
+Here is an example Terraform code to deploy Grafana on a GKE cluster:
+
+provider "google" {
+  project = "<YOUR_PROJECT>"
+  region  = "us-central1"
+}
+
+resource "google_container_cluster" "grafana-cluster" {
+  name               = "grafana-cluster"
+  location           = "us-central1"
+  initial_node_count = 1
+
+  node_config {
+    machine_type = "n1-standard-2"
+  }
+
+  master_auth {
+    username = ""
+    password = ""
+  }
+}
+
+resource "kubernetes_deployment" "grafana-deployment" {
+  metadata {
+    name = "grafana-deployment"
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "grafana"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app = "grafana"
+        }
+      }
+
+      spec {
+        container {
+          image = "grafana/grafana:latest"
+          name  = "grafana"
+
+          env {
+            name  = "GF_SERVER_ROOT_URL"
+            value = "http://grafana.example.com"
+          }
+
+          env {
+            name  = "GF_SECURITY_ADMIN_USER"
+            value = "admin"
+          }
+
+          env {
+            name  = "GF_SECURITY_ADMIN_PASSWORD"
+            value = "<ADMIN_PASSWORD>"
+          }
+
+          volume_mount {
+            name       = "grafana-storage"
+            mount_path = "/var/lib/grafana"
+          }
+
+          port {
+            name       = "http"
+            container_port = 3000
+          }
+        }
+
+        volume {
+          name = "grafana-storage"
+          empty_dir {}
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "grafana-service" {
+  metadata {
+    name = "grafana-service"
+  }
+
+  spec {
+    selector = {
+      app = "grafana"
+    }
+
+    port {
+      name       = "http"
+      port       = 3000
+      target_port = "http"
+    }
+  }
+}
+
+resource "kubernetes_ingress" "grafana-ingress" {
+  metadata {
+    name = "grafana-ingress"
+  }
+
+  spec {
+    rule {
+      host = "grafana.example.com"
+      http {
+        path {
+          backend {
+            service_name = kubernetes_service.grafana-service.metadata.0.name
+            service_port = kubernetes_service.grafana-service.spec.0.ports.0.name
+          }
+        }
+      }
+    }
+  }
+}
+Note that you will need to replace <YOUR_PROJECT> with your actual Google Cloud project name, and update the host value in the kubernetes_ingress resource to match the domain name you want to use for Grafana. You will also need to set an admin password for Grafana by replacing <ADMIN_PASSWORD> with a strong password.

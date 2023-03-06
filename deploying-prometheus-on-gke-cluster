@@ -1,0 +1,132 @@
+Deploying Prometheus on a GKE cluster using Terraform involves several steps. Here is a high-level overview of the process:
+Set up a GKE cluster: Use Terraform to create a new GKE cluster with the desired configuration, including the number of nodes, the machine type, the Kubernetes version, and any other desired settings. You can use the google_container_cluster resource in Terraform to create the cluster.
+Create a Prometheus deployment: Use the kubernetes_deployment resource in Terraform to create a deployment for Prometheus on the GKE cluster. The deployment should include the necessary configuration files and container images for Prometheus.
+Create a Prometheus service: Use the kubernetes_service resource in Terraform to create a service for Prometheus on the GKE cluster. This service will allow other pods in the cluster to access Prometheus.
+Create a Prometheus ingress: Use the kubernetes_ingress resource in Terraform to create an ingress for Prometheus on the GKE cluster. This ingress will allow external traffic to reach Prometheus.
+Verify the deployment: Use the kubectl command-line tool to verify that Prometheus is running correctly on the GKE cluster.
+
+Here is some sample Terraform code that demonstrates how to create a GKE cluster and deploy Prometheus on it:
+provider "google" {
+  project = "<YOUR_PROJECT>"
+  region  = "us-central1"
+}
+
+resource "google_container_cluster" "prometheus-cluster" {
+  name               = "prometheus-cluster"
+  location           = "us-central1"
+  initial_node_count = 1
+
+  node_config {
+    machine_type = "n1-standard-2"
+  }
+
+  master_auth {
+    username = ""
+    password = ""
+  }
+}
+
+resource "kubernetes_deployment" "prometheus-deployment" {
+  metadata {
+    name = "prometheus-deployment"
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "prometheus"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app = "prometheus"
+        }
+      }
+
+      spec {
+        container {
+          image = "prom/prometheus:v2.30.0"
+          name  = "prometheus"
+
+          args = [
+            "--config.file=/etc/prometheus/prometheus.yml",
+            "--storage.tsdb.path=/data",
+            "--web.console.templates=/usr/share/prometheus/consoles",
+            "--web.console.libraries=/usr/share/prometheus/console_libraries",
+            "--web.enable-lifecycle",
+          ]
+
+          volume_mount {
+            name       = "prometheus-config"
+            mount_path = "/etc/prometheus"
+          }
+
+          volume_mount {
+            name       = "prometheus-storage"
+            mount_path = "/data"
+          }
+
+          port {
+            name       = "web"
+            container_port = 9090
+          }
+        }
+
+        volume {
+          name = "prometheus-config"
+          config_map {
+            name = "prometheus-config"
+          }
+        }
+
+        volume {
+          name = "prometheus-storage"
+          empty_dir {}
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "prometheus-service" {
+  metadata {
+    name = "prometheus-service"
+  }
+
+  spec {
+    selector = {
+      app = "prometheus"
+    }
+
+    port {
+      name       = "web"
+      port       = 9090
+      target_port = "web"
+    }
+  }
+}
+
+resource "kubernetes_ingress" "prometheus-ingress" {
+  metadata {
+    name = "prometheus-ingress"
+  }
+
+  spec {
+    rule {
+      host = "prometheus.example.com"
+      http {
+        path {
+          backend {
+            service_name = kubernetes_service.prometheus-service.metadata.0.name
+            service_port = kubernetes_service.prometheus-service.spec.0.ports.0.name
+          }
+        }
+      }
+    }
+  }
+}
+Note that you will need to replace <YOUR_PROJECT> with your actual Google Cloud project name, and update the host value in the kubernetes_ingress resource to match the domain name you want to use for Prometheus. You will also need to create a ConfigMap for Prometheus configuration and reference it in the kubernetes_deployment resource.

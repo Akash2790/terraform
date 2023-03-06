@@ -1,0 +1,84 @@
+To connect a VM instance with a Google Cloud Storage bucket using Terraform, you can follow these steps:
+
+1) Define the Google Cloud Storage bucket resource in your Terraform code, specifying the bucket name and any other relevant settings. Here's an example:
+
+resource "google_storage_bucket" "example_bucket" {
+  name     = "my-bucket"
+  location = "US"
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle {
+    rule {
+      action    = "Delete"
+      condition {
+        age = 30
+      }
+    }
+  }
+}
+
+2) Define the VM instance resource, specifying the bucket's name as a metadata key-value pair. Here's an example:
+
+resource "google_compute_instance" "example_instance" {
+  name         = "my-instance"
+  machine_type = "n1-standard-1"
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-9"
+    }
+  }
+
+  network_interface {
+    network = "default"
+  }
+
+  metadata = {
+    "bucket-name" = "${google_storage_bucket.example_bucket.name}"
+  }
+}
+
+Note that we're using the ${} interpolation syntax to retrieve the bucket name dynamically from the previously defined google_storage_bucket resource.
+
+3) Define a startup script for the VM instance that downloads the necessary credentials to access the bucket, using the gsutil command-line tool. Here's an example:
+
+metadata_startup_script = <<-EOF
+#!/bin/bash
+
+# Download credentials
+curl -O "http://metadata/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google"
+access_token="$(jq -r .access_token token)"
+curl -O "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity" -H "Metadata-Flavor: Google"
+identity="$(cat identity)"
+curl -X GET -H "Authorization: Bearer ${access_token}" "https://storage.googleapis.com/storage/v1/b/${bucket_name}?projection=noAcl" -o "${bucket_name}-creds.json"
+
+# Configure gsutil
+export CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE="${bucket_name}-creds.json"
+gcloud config set project "${project_id}"
+gcloud auth activate-service-account --key-file="${bucket_name}-creds.json"
+
+# Mount bucket
+mkdir /mnt/my-bucket
+gcsfuse --implicit-dirs "${bucket_name}" /mnt/my-bucket
+EOF
+This script uses curl and jq to download the access token and identity of the VM instance's default service account, then uses gcloud to download the credentials for the specified bucket and configure gsutil to use those credentials. Finally, it uses gcsfuse to mount the bucket at /mnt/my-bucket.
+
+4) Define a firewall rule to allow incoming traffic on the necessary ports for gcsfuse to work. Here's an example:
+
+resource "google_compute_firewall" "example_firewall" {
+  name    = "gcsfuse"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22", "80", "443", "873"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+}
+This rule allows incoming traffic on ports 22 (SSH), 80 (HTTP), 443 (HTTPS), and 873 (rsync, used by gcsfuse).
+
+5) Apply your Terraform code to create the resources and launch the VM instance. Once the instance is running, you should be able to access the bucket at /mnt/my-bucket.
